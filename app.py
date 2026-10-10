@@ -1,11 +1,10 @@
+import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-# Blogger website se connection allow karne ke liye CORS
 CORS(app)
 
-# Fake Database (Testing ke liye)
 USER_DATA = {
     "balance": 15.00,
     "approved_tasks": 0
@@ -13,7 +12,7 @@ USER_DATA = {
 
 @app.route("/")
 def home():
-    return jsonify({"status": "Active", "message": "Backend Server Ready Hai!"})
+    return jsonify({"status": "Active", "message": "EarnX Backend Live!"})
 
 @app.route("/api/user-data", methods=["GET"])
 def get_user_data():
@@ -39,4 +38,5 @@ def withdraw():
     })
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

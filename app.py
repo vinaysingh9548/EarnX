@@ -5,7 +5,7 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-ADMIN_PASSWORD = "admin123"  # <-- Admin Password
+ADMIN_PASSWORD = "admin123"  # <-- Aapka Admin Password
 
 def get_db():
     conn = sqlite3.connect('earnx.db')
@@ -20,6 +20,7 @@ def init_db():
             name TEXT,
             balance REAL DEFAULT 15.0,
             referrals INTEGER DEFAULT 0,
+            referred_by TEXT DEFAULT '',
             is_blocked INTEGER DEFAULT 0
         )''')
         
@@ -59,7 +60,7 @@ def init_db():
 
 init_db()
 
-# --- ADMIN CHECK HELPER (FIXED) ---
+# --- ADMIN CHECK HELPER ---
 def check_admin(req):
     if req.method == 'GET':
         pwd = req.args.get('password')
@@ -73,27 +74,41 @@ def check_admin(req):
 def home():
     return jsonify({"message": "EarnX Backend Live!", "status": "Active"})
 
-# --- USER APIS ---
+# --- USER AUTO SIGNUP & LOGIN API ---
 
 @app.route('/api/user-data', methods=['GET'])
 def get_user_data():
-    user_id = request.args.get('user_id', '987654321')
+    user_id = request.args.get('user_id')
+    user_name = request.args.get('name', 'Telegram User')
+    ref_by = request.args.get('ref_by', '')
+
+    if not user_id:
+        return jsonify({"error": "Missing user_id"}), 400
+
     with get_db() as conn:
         user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+        
+        # AGAR USER NAYA HAI TOH AUTOMATIC SIGNUP / DB INSERT KAREIN
         if not user:
-            conn.execute('INSERT INTO users (id, name, balance) VALUES (?, ?, ?)', (user_id, 'Vinay Singh', 15.0))
+            conn.execute('INSERT INTO users (id, name, balance, referred_by) VALUES (?, ?, ?, ?)', 
+                         (user_id, user_name, 15.0, ref_by))
+            
+            # Agar kisi ke referral link se aaya hai toh referrer ko ₹5 bonus credit karein
+            if ref_by and ref_by != user_id:
+                conn.execute('UPDATE users SET balance = balance + 5.0, referrals = referrals + 1 WHERE id = ?', (ref_by,))
+            
             conn.commit()
             user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
         
         if user['is_blocked'] == 1:
-            return jsonify({"error": "blocked", "message": "Aapka account block kar diya gaya hai."}), 403
+            return jsonify({"error": "blocked", "message": "Aapka account block kar diya gaya hai. Support se sampark karein."}), 403
 
         return jsonify(dict(user))
 
 @app.route('/api/submit-task', methods=['POST'])
 def submit_task():
     data = request.json or {}
-    user_id = data.get('user_id', '987654321')
+    user_id = data.get('user_id')
     task_id = data.get('task_id')
     proof_text = data.get('proof_text', '')
 
@@ -114,7 +129,7 @@ def submit_task():
 @app.route('/api/withdraw', methods=['POST'])
 def withdraw():
     data = request.json or {}
-    user_id = data.get('user_id', '987654321')
+    user_id = data.get('user_id')
     upi_id = data.get('upi_id')
     amount = float(data.get('amount', 0))
 
@@ -136,25 +151,7 @@ def withdraw():
 
         return jsonify({"message": "Withdrawal request submitted successfully!", "new_balance": new_balance})
 
-# --- ADMIN PANEL APIS ---
-
-@app.route('/admin/stats', methods=['GET'])
-def admin_stats():
-    if not check_admin(request): return jsonify({"message": "Unauthorized"}), 401
-    with get_db() as conn:
-        users_cnt = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-        blocked_cnt = conn.execute('SELECT COUNT(*) FROM users WHERE is_blocked = 1').fetchone()[0]
-        pending_proofs = conn.execute('SELECT COUNT(*) FROM task_submissions WHERE status = "pending"').fetchone()[0]
-        pending_withdraws = conn.execute('SELECT COUNT(*) FROM withdrawals WHERE status = "pending"').fetchone()[0]
-        total_payouts = conn.execute('SELECT SUM(amount) FROM withdrawals WHERE status = "approved"').fetchone()[0] or 0.0
-
-        return jsonify({
-            "total_users": users_cnt,
-            "blocked_users": blocked_cnt,
-            "pending_proofs": pending_proofs,
-            "pending_withdrawals": pending_withdraws,
-            "total_payouts": total_payouts
-        })
+# --- ADMIN APIS ---
 
 @app.route('/admin/users', methods=['GET'])
 def admin_users():
